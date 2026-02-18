@@ -13,6 +13,22 @@ import { join } from "path";
 const CONFIG_DIR = join(homedir(), ".idle-tv");
 const CONFIG_FILE = join(CONFIG_DIR, "config.json");
 const SOCKET_PATH = "/tmp/idle-tv-mpv.sock";
+const INACTIVITY_TIMEOUT = 5000; // 5 seconds
+
+// Inactivity timer
+let inactivityTimer = null;
+
+function resetInactivityTimer() {
+  if (inactivityTimer) clearTimeout(inactivityTimer);
+  if (isMpvRunning()) {
+    mpvCommand(["set_property", "pause", false]);
+  }
+  inactivityTimer = setTimeout(() => {
+    if (isMpvRunning()) {
+      mpvCommand(["set_property", "pause", true]);
+    }
+  }, INACTIVITY_TIMEOUT);
+}
 
 // Default config
 const DEFAULT_CONFIG = {
@@ -43,6 +59,46 @@ function loadConfig() {
 function saveConfig(config) {
   ensureConfigDir();
   writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
+}
+
+// Get Kitty window bounds using Swift (macOS) or fallback
+function getKittyBounds() {
+  try {
+    const script = `
+import CoreGraphics
+let options = CGWindowListOption(arrayLiteral: .optionOnScreenOnly)
+if let windows = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] {
+  for window in windows {
+    if let owner = window["kCGWindowOwnerName"] as? String, owner.lowercased() == "kitty" {
+      if let b = window["kCGWindowBounds"] as? [String: Any],
+         let w = b["Width"] as? CGFloat, w > 100 {
+        print("\\(Int(b["X"] as! CGFloat)) \\(Int(b["Y"] as! CGFloat)) \\(Int(w)) \\(Int(b["Height"] as! CGFloat))")
+        break
+      }
+    }
+  }
+}`;
+    const result = execSync(`swift -e '${script}' 2>/dev/null`, { encoding: "utf8" }).trim();
+    if (result) {
+      const [x, y, w, h] = result.split(' ').map(Number);
+      return { x, y, w, h };
+    }
+  } catch (e) {}
+  return null;
+}
+
+// Calculate PiP geometry string for mpv based on Kitty window position (16:9 aspect ratio)
+function getPipGeometry() {
+  const bounds = getKittyBounds();
+  if (!bounds) return '35%x20%-20-20'; // fallback (16:9 ish)
+
+  const pipW = Math.round(bounds.w * 0.35);
+  const pipH = Math.round(pipW * 9 / 16); // 16:9 aspect ratio
+  const margin = 20;
+  const x = bounds.x + bounds.w - pipW - margin;
+  const y = bounds.y + bounds.h - pipH - margin;
+
+  return `${pipW}x${pipH}+${x}+${y}`;
 }
 
 // Check if mpv is installed
@@ -142,15 +198,19 @@ function startMpv(url) {
     // Kill any existing mpv
     execSync('pkill mpv 2>/dev/null || true');
 
-    // Launch mpv as PiP (always on top, no border, bottom-right corner)
+    // Calculate PiP geometry based on Kitty window position
+    const geo = getPipGeometry();
+
+    // Launch mpv directly with cursor-passthrough (NSWindow.ignoresMouseEvents = true)
     spawn('mpv', [
       '--ontop',
       '--no-border',
-      '--geometry=25%x25%-20-20',
+      `--geometry=${geo}`,
       '--really-quiet',
       '--keep-open=yes',
       `--input-ipc-server=${SOCKET_PATH}`,
-      streamUrl
+      '--input-cursor-passthrough',
+      streamUrl,
     ], {
       detached: true,
       stdio: 'ignore'
@@ -439,6 +499,9 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 // Handle tool calls
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
+
+  // Reset inactivity timer on every tool call
+  resetInactivityTimer();
 
   try {
     let result;

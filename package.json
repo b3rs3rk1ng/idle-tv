@@ -7,7 +7,7 @@
     "idle-tv": "bin/idle-tv"
   },
   "scripts": {
-    "build": "esbuild src/mcp-server.js --bundle --platform=node --target=node18 --outfile=dist/idle-tv.js --format=cjs --banner:js='#!/usr/bin/env node'",
+    "build": "esbuild src/mcp-server.js --bundle --platform=node --target=node18 --outfile=dist/mcp-server.js --format=cjs && esbuild src/cli.js --bundle --platform=node --target=node18 --outfile=dist/cli.js --format=cjs",
     "prepublishOnly": "npm run build"
   },
   "keywords": [

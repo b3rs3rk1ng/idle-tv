@@ -1,2 +1,11 @@
 #!/usr/bin/env node
-require('../dist/idle-tv.js');
+
+const args = process.argv.slice(2);
+
+if (args.length > 0 && ['play', 'pause', 'stop', 'status', 'resume'].includes(args[0])) {
+  // CLI mode for hooks
+  require('../dist/cli.js');
+} else {
+  // MCP server mode
+  require('../dist/mcp-server.js');
+}
