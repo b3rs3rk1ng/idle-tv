@@ -1,0 +1,43 @@
+{
+  "name": "idle-tv",
+  "version": "1.0.0",
+  "description": "Stream videos while your AI works. Auto play/pause, zero friction. Works with Claude Code, Cursor, and any MCP-compatible CLI.",
+  "main": "dist/idle-tv.js",
+  "bin": {
+    "idle-tv": "bin/idle-tv"
+  },
+  "scripts": {
+    "build": "esbuild src/mcp-server.js --bundle --platform=node --target=node18 --outfile=dist/idle-tv.js --format=cjs --banner:js='#!/usr/bin/env node'",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "claude",
+    "claude-code",
+    "cursor",
+    "ai",
+    "streaming",
+    "youtube",
+    "mpv",
+    "video",
+    "idle",
+    "productivity"
+  ],
+  "author": "b3rs3rk1ng",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/b3rs3rk1ng/idle-tv.git"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": [
+    "dist/",
+    "bin/"
+  ],
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "esbuild": "^0.27.3"
+  }
+}
