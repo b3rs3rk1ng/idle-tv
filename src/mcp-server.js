@@ -14,56 +14,6 @@ const CONFIG_DIR = join(homedir(), ".idle-tv");
 const CONFIG_FILE = join(CONFIG_DIR, "config.json");
 const SOCKET_PATH = "/tmp/idle-tv-mpv.sock";
 
-// Find all Kitty sockets
-function findKittySockets() {
-  try {
-    const files = execSync('ls /tmp/kitty-* 2>/dev/null || true', { encoding: "utf8" });
-    return files.trim().split('\n').filter(f => f && !f.includes('*'));
-  } catch (e) {
-    return [];
-  }
-}
-
-// Get focused window info across all Kitty instances
-function getFocusedKittyWindow() {
-  const sockets = findKittySockets();
-
-  for (const socket of sockets) {
-    try {
-      const output = execSync(`kitty @ --to="unix:${socket}" ls 2>/dev/null`, { encoding: "utf8" });
-      const data = JSON.parse(output);
-
-      for (const osWindow of data) {
-        if (!osWindow.is_focused) continue;
-
-        for (const tab of osWindow.tabs) {
-          if (!tab.is_focused) continue;
-
-          for (const win of tab.windows) {
-            if (win.is_focused) {
-              return {
-                socket: `unix:${socket}`,
-                windowId: win.id,
-                tabWindowCount: tab.windows.length
-              };
-            }
-          }
-        }
-      }
-    } catch (e) {
-      continue;
-    }
-  }
-
-  return null;
-}
-
-// Build kitty @ command with specific socket
-function kittyCmd(args, socket = null) {
-  const toFlag = socket ? `--to="${socket}"` : "";
-  return `kitty @ ${toFlag} ${args}`;
-}
-
 // Default config
 const DEFAULT_CONFIG = {
   lastUrl: null,
@@ -113,14 +63,6 @@ function isMpvRunning() {
   } catch (e) {
     return false;
   }
-}
-
-// Get split location based on focused window's tab layout
-function getSplitLocation(focusedInfo) {
-  if (!focusedInfo) return "vsplit";
-  // If only 1 window (Claude alone), split right (vsplit)
-  // If 2+ windows (already split), split below (hsplit)
-  return focusedInfo.tabWindowCount === 1 ? "vsplit" : "hsplit";
 }
 
 // Send command to mpv via socket
@@ -195,23 +137,24 @@ function startMpv(url) {
     return { success: false, message: "Failed to get stream URL. Check if yt-dlp supports this site." };
   }
 
-  // Start new mpv instance in Kitty split
+  // Start new mpv instance as PiP window
   try {
-    // Find the currently focused Kitty window
-    const focusedInfo = getFocusedKittyWindow();
-    if (!focusedInfo) {
-      return { success: false, message: "Could not find focused Kitty window" };
-    }
+    // Kill any existing mpv
+    execSync('pkill mpv 2>/dev/null || true');
 
-    // Close existing idle-tv window if any
-    execSync(kittyCmd('close-window --match="title:idle-tv"', focusedInfo.socket) + ' 2>/dev/null || true');
-
-    // Launch in Kitty split with video in terminal
-    const splitLocation = getSplitLocation(focusedInfo);
-    const nextTo = `--next-to="id:${focusedInfo.windowId}"`;
-    execSync(kittyCmd(`launch --location=${splitLocation} ${nextTo} --title="idle-tv" mpv --vo=kitty --keep-open=yes --input-ipc-server=${SOCKET_PATH} "${streamUrl}"`, focusedInfo.socket), {
-      encoding: "utf8",
-    });
+    // Launch mpv as PiP (always on top, no border, bottom-right corner)
+    spawn('mpv', [
+      '--ontop',
+      '--no-border',
+      '--geometry=25%x25%-20-20',
+      '--really-quiet',
+      '--keep-open=yes',
+      `--input-ipc-server=${SOCKET_PATH}`,
+      streamUrl
+    ], {
+      detached: true,
+      stdio: 'ignore'
+    }).unref();
 
     const config = loadConfig();
     config.lastUrl = url;

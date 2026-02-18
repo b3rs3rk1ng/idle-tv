@@ -20674,45 +20674,6 @@ var import_path = require("path");
 var CONFIG_DIR = (0, import_path.join)((0, import_os.homedir)(), ".idle-tv");
 var CONFIG_FILE = (0, import_path.join)(CONFIG_DIR, "config.json");
 var SOCKET_PATH = "/tmp/idle-tv-mpv.sock";
-function findKittySockets() {
-  try {
-    const files = (0, import_child_process.execSync)("ls /tmp/kitty-* 2>/dev/null || true", { encoding: "utf8" });
-    return files.trim().split("\n").filter((f) => f && !f.includes("*"));
-  } catch (e) {
-    return [];
-  }
-}
-function getFocusedKittyWindow() {
-  const sockets = findKittySockets();
-  for (const socket of sockets) {
-    try {
-      const output = (0, import_child_process.execSync)(`kitty @ --to="unix:${socket}" ls 2>/dev/null`, { encoding: "utf8" });
-      const data = JSON.parse(output);
-      for (const osWindow of data) {
-        if (!osWindow.is_focused) continue;
-        for (const tab of osWindow.tabs) {
-          if (!tab.is_focused) continue;
-          for (const win of tab.windows) {
-            if (win.is_focused) {
-              return {
-                socket: `unix:${socket}`,
-                windowId: win.id,
-                tabWindowCount: tab.windows.length
-              };
-            }
-          }
-        }
-      }
-    } catch (e) {
-      continue;
-    }
-  }
-  return null;
-}
-function kittyCmd(args, socket = null) {
-  const toFlag = socket ? `--to="${socket}"` : "";
-  return `kitty @ ${toFlag} ${args}`;
-}
 var DEFAULT_CONFIG = {
   lastUrl: null,
   volume: 50,
@@ -20752,10 +20713,6 @@ function isMpvRunning() {
   } catch (e) {
     return false;
   }
-}
-function getSplitLocation(focusedInfo) {
-  if (!focusedInfo) return "vsplit";
-  return focusedInfo.tabWindowCount === 1 ? "vsplit" : "hsplit";
 }
 function mpvCommand(command) {
   try {
@@ -20814,16 +20771,19 @@ function startMpv(url2) {
     return { success: false, message: "Failed to get stream URL. Check if yt-dlp supports this site." };
   }
   try {
-    const focusedInfo = getFocusedKittyWindow();
-    if (!focusedInfo) {
-      return { success: false, message: "Could not find focused Kitty window" };
-    }
-    (0, import_child_process.execSync)(kittyCmd('close-window --match="title:idle-tv"', focusedInfo.socket) + " 2>/dev/null || true");
-    const splitLocation = getSplitLocation(focusedInfo);
-    const nextTo = `--next-to="id:${focusedInfo.windowId}"`;
-    (0, import_child_process.execSync)(kittyCmd(`launch --location=${splitLocation} ${nextTo} --title="idle-tv" mpv --vo=kitty --keep-open=yes --input-ipc-server=${SOCKET_PATH} "${streamUrl}"`, focusedInfo.socket), {
-      encoding: "utf8"
-    });
+    (0, import_child_process.execSync)("pkill mpv 2>/dev/null || true");
+    (0, import_child_process.spawn)("mpv", [
+      "--ontop",
+      "--no-border",
+      "--geometry=25%x25%-20-20",
+      "--really-quiet",
+      "--keep-open=yes",
+      `--input-ipc-server=${SOCKET_PATH}`,
+      streamUrl
+    ], {
+      detached: true,
+      stdio: "ignore"
+    }).unref();
     const config2 = loadConfig();
     config2.lastUrl = url2;
     saveConfig(config2);
